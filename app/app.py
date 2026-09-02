@@ -1,496 +1,449 @@
 import streamlit as st
 import cv2
 import numpy as np
-import os
 import sys
+import os
 
-# Allow Streamlit to access the src folder
+# Add src folder to Python path
 sys.path.append(
     os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "src")
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "src"
+        )
     )
 )
 
-from lunar_align_pro import (
-    preprocess_image,
-    evaluate_detector,
-    robust_refine,
-    calculate_spatial_coverage
-)
+from multimodal_matcher import adaptive_multimodal_matching
+from scale_invariance import evaluate_scale_invariance
 
-
-# =========================================================
-# PAGE CONFIGURATION
-# =========================================================
 
 st.set_page_config(
-    page_title="LunarAlign-AI Pro",
+    page_title="LunarAlign-AI | SIH26166",
     page_icon="🌕",
     layout="wide"
 )
 
-st.title("🌕 LunarAlign-AI Pro")
+
+st.title("🌕 LunarAlign-AI")
 st.subheader(
-    "Adaptive Multi-Feature Lunar Image Correspondence "
-    "and Registration System"
+    "SIH26166 — Multi-modal, Sun-Angle and Scale-Invariant "
+    "Lunar Image Correspondence"
 )
 
-st.markdown("""
-**Advanced Pipeline:**
-
-Illumination-Aware Preprocessing → Adaptive Feature Selection →
-Lowe's Ratio Test → RANSAC Verification → Robust Geometric Refinement →
-Spatial Coverage Analysis → Sub-Pixel Error Evaluation → Image Registration
-""")
+st.write(
+    "An adaptive computer-vision pipeline for robust lunar image "
+    "correspondence, geometric verification and multi-scale evaluation."
+)
 
 st.divider()
 
 
-# =========================================================
-# IMAGE UPLOAD
-# =========================================================
-
-col1, col2 = st.columns(2)
-
-with col1:
-    reference_file = st.file_uploader(
-        "🌕 Upload Reference Lunar Image",
-        type=["jpg", "jpeg", "png"],
-        key="reference"
-    )
-
-with col2:
-    source_file = st.file_uploader(
-        "🛰️ Upload Source Lunar Image",
-        type=["jpg", "jpeg", "png"],
-        key="source"
-    )
-
-
-def read_uploaded_image(uploaded_file):
+def load_image(uploaded_file):
+    """Convert Streamlit uploaded file into OpenCV image."""
 
     file_bytes = np.asarray(
         bytearray(uploaded_file.read()),
         dtype=np.uint8
     )
 
-    return cv2.imdecode(
+    image = cv2.imdecode(
         file_bytes,
         cv2.IMREAD_COLOR
     )
 
+    return image
 
-# =========================================================
-# MAIN PIPELINE
-# =========================================================
+
+def resize_for_display(image, max_width=700):
+
+    height, width = image.shape[:2]
+
+    if width > max_width:
+
+        scale = max_width / width
+
+        image = cv2.resize(
+            image,
+            (
+                int(width * scale),
+                int(height * scale)
+            )
+        )
+
+    return image
+
+
+st.header("📤 Upload Lunar Images")
+
+col1, col2 = st.columns(2)
+
+with col1:
+
+    reference_file = st.file_uploader(
+        "Upload Reference Image",
+        type=["jpg", "jpeg", "png"],
+        key="reference"
+    )
+
+with col2:
+
+    source_file = st.file_uploader(
+        "Upload Source Image",
+        type=["jpg", "jpeg", "png"],
+        key="source"
+    )
+
 
 if reference_file and source_file:
 
-    reference_color = read_uploaded_image(
-        reference_file
-    )
+    reference = load_image(reference_file)
+    source = load_image(source_file)
 
-    source_color = read_uploaded_image(
-        source_file
-    )
+    st.success("✓ Both lunar images loaded successfully")
 
-    # Show uploaded images
-    st.subheader("📥 Input Lunar Images")
+    preview1, preview2 = st.columns(2)
 
-    c1, c2 = st.columns(2)
+    with preview1:
 
-    with c1:
         st.image(
-            cv2.cvtColor(
-                reference_color,
-                cv2.COLOR_BGR2RGB
-            ),
-            caption="Reference Image (Fixed)",
-            use_container_width=True
+            resize_for_display(reference),
+            caption="Reference Lunar Image",
+            channels="BGR"
         )
 
-    with c2:
+    with preview2:
+
         st.image(
-            cv2.cvtColor(
-                source_color,
-                cv2.COLOR_BGR2RGB
-            ),
-            caption="Source Image (Moving)",
-            use_container_width=True
+            resize_for_display(source),
+            caption="Source Lunar Image",
+            channels="BGR"
         )
 
     st.divider()
 
     if st.button(
-        "🚀 Run LunarAlign-AI Pro",
+        "🚀 Run SIH26166 Correspondence Pipeline",
         use_container_width=True
     ):
 
-        with st.spinner(
-            "Running advanced lunar correspondence pipeline..."
-        ):
+        try:
 
-            # ---------------------------------------------
-            # Convert to grayscale
-            # ---------------------------------------------
+            with st.spinner(
+                "Running adaptive multi-modal correspondence..."
+            ):
 
-            reference_gray = cv2.cvtColor(
-                reference_color,
-                cv2.COLOR_BGR2GRAY
-            )
+                # STEP 1:
+                # Adaptive representation matching
 
-            source_gray = cv2.cvtColor(
-                source_color,
-                cv2.COLOR_BGR2GRAY
-            )
-
-            # ---------------------------------------------
-            # Advanced preprocessing
-            # ---------------------------------------------
-
-            reference = preprocess_image(
-                reference_gray
-            )
-
-            source = preprocess_image(
-                source_gray
-            )
-
-            # ---------------------------------------------
-            # Adaptive detector evaluation
-            # ---------------------------------------------
-
-            methods = ["SIFT", "ORB"]
-
-            detector_results = []
-
-            for method in methods:
-
-                result = evaluate_detector(
-                    method,
-                    reference,
-                    source
+                best_result, all_results = (
+                    adaptive_multimodal_matching(
+                        reference,
+                        source
+                    )
                 )
 
-                if result is not None:
-                    detector_results.append(
-                        result
+                if best_result is None:
+
+                    st.error(
+                        "No reliable correspondence could be found."
                     )
 
-            if not detector_results:
+                    st.stop()
 
-                st.error(
-                    "No reliable feature detector found."
+                # STEP 2:
+                # Scale invariance evaluation
+
+                gray_reference = cv2.cvtColor(
+                    reference,
+                    cv2.COLOR_BGR2GRAY
                 )
 
-                st.stop()
-
-            # Select best detector
-            best = max(
-                detector_results,
-                key=lambda x: x["quality_score"]
-            )
-
-            # ---------------------------------------------
-            # Robust refinement
-            # ---------------------------------------------
-
-            (
-                H_final,
-                reliable_ref,
-                reliable_src,
-                final_errors
-            ) = robust_refine(best)
-
-            # ---------------------------------------------
-            # Spatial coverage
-            # ---------------------------------------------
-
-            coverage = calculate_spatial_coverage(
-                reliable_ref,
-                reference.shape,
-                grid_size=4
-            )
-
-            # ---------------------------------------------
-            # Final metrics
-            # ---------------------------------------------
-
-            mean_error = float(
-                np.mean(final_errors)
-            )
-
-            median_error = float(
-                np.median(final_errors)
-            )
-
-            max_error = float(
-                np.max(final_errors)
-            )
-
-            reliable_points = len(
-                reliable_ref
-            )
-
-            geometric_score = max(
-                0,
-                100 - mean_error * 20
-            )
-
-            confidence = (
-                0.40 * best["inlier_ratio"]
-                + 0.30 * coverage
-                + 0.30 * geometric_score
-            )
-
-            confidence = min(
-                confidence,
-                100
-            )
-
-            # ---------------------------------------------
-            # Final registration
-            # ---------------------------------------------
-
-            aligned = cv2.warpPerspective(
-                source_color,
-                H_final,
-                (
-                    reference_color.shape[1],
-                    reference_color.shape[0]
+                gray_source = cv2.cvtColor(
+                    source,
+                    cv2.COLOR_BGR2GRAY
                 )
-            )
 
-            # ---------------------------------------------
-            # Draw reliable correspondence points
-            # ---------------------------------------------
-
-            inlier_mask = best["mask"].ravel() == 1
-
-            inlier_matches = [
-                best["matches"][i]
-                for i in range(
-                    len(best["matches"])
+                scale_results = (
+                    evaluate_scale_invariance(
+                        gray_reference,
+                        gray_source
+                    )
                 )
-                if inlier_mask[i]
-            ]
 
-            # Limit visualization for cleaner display
-            display_matches = inlier_matches[:100]
+                # STEP 3:
+                # Calculate metrics
 
-            match_result = cv2.drawMatches(
-                reference_color,
-                best["kp1"],
-                source_color,
-                best["kp2"],
-                display_matches,
-                None,
-                flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-            )
+                scale_ratios = [
+                    r["inlier_ratio"]
+                    for r in scale_results
+                ]
 
-        # =================================================
-        # DISPLAY RESULTS
-        # =================================================
+                scale_consistency = np.mean(
+                    scale_ratios
+                )
 
-        st.success(
-            "🎉 LunarAlign-AI Pro completed successfully!"
-        )
+                ratios_array = np.array(
+                    scale_ratios
+                )
 
-        st.divider()
+                mean_ratio = np.mean(
+                    ratios_array
+                )
 
-        # ---------------------------------------------
-        # Detector Comparison
-        # ---------------------------------------------
+                std_ratio = np.std(
+                    ratios_array
+                )
 
-        st.subheader("🧠 Adaptive Feature Selection")
+                if mean_ratio > 0:
 
-        detector_data = []
+                    scale_stability = (
+                        100 *
+                        (
+                            1 -
+                            std_ratio / mean_ratio
+                        )
+                    )
 
-        for result in detector_results:
+                else:
 
-            detector_data.append({
-                "Detector": result["name"],
-                "Good Matches": result["good_matches"],
-                "RANSAC Inliers": result["inliers"],
-                "Inlier Ratio (%)":
-                    round(result["inlier_ratio"], 2),
-                "Median Error (px)":
-                    round(result["median_error"], 4),
-                "Quality Score":
-                    round(result["quality_score"], 4)
-            })
+                    scale_stability = 0
 
-        st.dataframe(
-            detector_data,
-            use_container_width=True
-        )
+                scale_stability = max(
+                    0,
+                    scale_stability
+                )
 
-        st.success(
-            f"🏆 Automatically Selected Detector: "
-            f"{best['name']}"
-        )
+                final_confidence = (
+                    0.6 *
+                    best_result["inlier_ratio"]
+                    +
+                    0.4 *
+                    scale_consistency
+                )
 
-        st.divider()
+                final_confidence = min(
+                    final_confidence,
+                    100
+                )
 
-        # ---------------------------------------------
-        # Final Metrics
-        # ---------------------------------------------
+                # STEP 4:
+                # Align source image
 
-        st.subheader("📊 Final Registration Performance")
+                height, width = reference.shape[:2]
 
-        m1, m2, m3, m4 = st.columns(4)
+                aligned_image = (
+                    cv2.warpPerspective(
+                        source,
+                        best_result["homography"],
+                        (width, height)
+                    )
+                )
 
-        m1.metric(
-            "Good Matches",
-            best["good_matches"]
-        )
+                # STEP 5:
+                # Draw reliable matches
 
-        m2.metric(
-            "RANSAC Inliers",
-            best["inliers"]
-        )
-
-        m3.metric(
-            "Reliable Points",
-            reliable_points
-        )
-
-        m4.metric(
-            "Spatial Coverage",
-            f"{coverage:.1f}%"
-        )
-
-        m5, m6, m7, m8 = st.columns(4)
-
-        m5.metric(
-            "Mean Error",
-            f"{mean_error:.4f} px"
-        )
-
-        m6.metric(
-            "Median Error",
-            f"{median_error:.4f} px"
-        )
-
-        m7.metric(
-            "Maximum Error",
-            f"{max_error:.4f} px"
-        )
-
-        m8.metric(
-            "Alignment Confidence",
-            f"{confidence:.2f}%"
-        )
-
-        st.divider()
-
-        # ---------------------------------------------
-        # Correspondence Visualization
-        # ---------------------------------------------
-
-        st.subheader(
-            "🔗 Geometrically Verified Correspondence Points"
-        )
-
-        st.image(
-            cv2.cvtColor(
-                match_result,
-                cv2.COLOR_BGR2RGB
-            ),
-            caption=(
-                "Top reliable feature correspondences "
-                "after Lowe's Ratio Test and RANSAC"
-            ),
-            use_container_width=True
-        )
-
-        st.divider()
-
-        # ---------------------------------------------
-        # Final Alignment
-        # ---------------------------------------------
-
-        st.subheader(
-            "🌕 Final Lunar Image Registration"
-        )
-
-        a1, a2, a3 = st.columns(3)
-
-        with a1:
-
-            st.image(
-                cv2.cvtColor(
-                    reference_color,
-                    cv2.COLOR_BGR2RGB
-                ),
-                caption="Reference Image",
-                use_container_width=True
-            )
-
-        with a2:
-
-            st.image(
-                cv2.cvtColor(
-                    source_color,
-                    cv2.COLOR_BGR2RGB
-                ),
-                caption="Source Image",
-                use_container_width=True
-            )
-
-        with a3:
-
-            st.image(
-                cv2.cvtColor(
-                    aligned,
-                    cv2.COLOR_BGR2RGB
-                ),
-                caption="LunarAlign-AI Pro Registered Image",
-                use_container_width=True
-            )
-
-        st.divider()
-
-        # ---------------------------------------------
-        # Final Summary
-        # ---------------------------------------------
-
-        st.subheader("🚀 Alignment Summary")
-
-        st.info(
-            f"""
-**Selected Feature Engine:** {best["name"]}
-
-**Reliable Correspondence Points:** {reliable_points}
-
-**Spatial Distribution Coverage:** {coverage:.2f}%
-
-**Mean Reprojection Error:** {mean_error:.4f} pixels
-
-**Median Reprojection Error:** {median_error:.4f} pixels
-
-**Alignment Confidence Score:** {confidence:.2f}%
-"""
-        )
-
-        if mean_error < 1.0:
+                match_image = cv2.drawMatches(
+                    reference,
+                    best_result["kp1"],
+                    source,
+                    best_result["kp2"],
+                    best_result["inliers"],
+                    None,
+                    flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+                )
 
             st.success(
-                "🎯 Sub-pixel mean reprojection error achieved "
-                "for this evaluated image pair."
+                "🌕 SIH26166 Correspondence Pipeline Completed!"
             )
 
-        else:
+            # -----------------------------------------
+            # METRICS
+            # -----------------------------------------
 
-            st.warning(
-                "Refinement completed. "
-                "Sub-pixel mean error was not achieved "
-                "for this image pair."
+            st.header("📊 Correspondence Results")
+
+            metric1, metric2, metric3, metric4 = (
+                st.columns(4)
+            )
+
+            metric1.metric(
+                "Good Matches",
+                best_result["good_matches"]
+            )
+
+            metric2.metric(
+                "Geometric Inliers",
+                best_result["inlier_count"]
+            )
+
+            metric3.metric(
+                "Inlier Ratio",
+                f"{best_result['inlier_ratio']:.2f}%"
+            )
+
+            metric4.metric(
+                "Final Confidence",
+                f"{final_confidence:.2f}%"
+            )
+
+            st.divider()
+
+            # -----------------------------------------
+            # ADAPTIVE REPRESENTATION
+            # -----------------------------------------
+
+            st.header(
+                "🧠 Adaptive Representation Selection"
+            )
+
+            rep1, rep2 = st.columns(2)
+
+            with rep1:
+
+                st.info(
+                    "Reference Representation: "
+                    f"**{best_result['reference_mode']}**"
+                )
+
+            with rep2:
+
+                st.info(
+                    "Source Representation: "
+                    f"**{best_result['source_mode']}**"
+                )
+
+            st.write(
+                "The system evaluates intensity, structural and "
+                "edge-based representations and selects the "
+                "correspondence pair with the strongest geometric "
+                "consistency."
+            )
+
+            # -----------------------------------------
+            # SCALE RESULTS
+            # -----------------------------------------
+
+            st.divider()
+
+            st.header("🔍 Multi-Scale Robustness Evaluation")
+
+            scale_data = []
+
+            for result in scale_results:
+
+                scale_data.append(
+                    {
+                        "Scale": f"{result['scale']}x",
+                        "Good Matches":
+                            result["good_matches"],
+                        "Geometric Inliers":
+                            result["inliers"],
+                        "Inlier Ratio (%)":
+                            round(
+                                result[
+                                    "inlier_ratio"
+                                ],
+                                2
+                            )
+                    }
+                )
+
+            st.dataframe(
+                scale_data,
+                use_container_width=True
+            )
+
+            stability_col1, stability_col2 = (
+                st.columns(2)
+            )
+
+            with stability_col1:
+
+                st.metric(
+                    "Scale Stability",
+                    f"{scale_stability:.2f}%"
+                )
+
+            with stability_col2:
+
+                st.metric(
+                    "Scales Evaluated",
+                    len(scale_results)
+                )
+
+            # -----------------------------------------
+            # VISUAL OUTPUT
+            # -----------------------------------------
+
+            st.divider()
+
+            st.header("🛰️ Geometric Correspondence")
+
+            st.image(
+                resize_for_display(
+                    match_image,
+                    1200
+                ),
+                caption=(
+                    "RANSAC-Verified Reliable "
+                    "Correspondences"
+                ),
+                channels="BGR"
+            )
+
+            st.divider()
+
+            st.header("🌕 Final Aligned Lunar Image")
+
+            st.image(
+                resize_for_display(
+                    aligned_image
+                ),
+                caption=(
+                    "Source Image Aligned to "
+                    "Reference Coordinate System"
+                ),
+                channels="BGR"
+            )
+
+            # -----------------------------------------
+            # PROJECT SUMMARY
+            # -----------------------------------------
+
+            st.divider()
+
+            st.header("🔬 SIH26166 Pipeline Summary")
+
+            st.markdown(
+                """
+                **Pipeline capabilities:**
+
+                - 🌗 Illumination-aware preprocessing
+                - 🛰️ Multiple structural image representations
+                - 🧠 Adaptive representation selection
+                - 🔍 Explicit multi-scale correspondence evaluation
+                - 📍 SIFT-based feature correspondence
+                - 🛡️ RANSAC geometric verification
+                - 📐 Homography-based image alignment
+                - 📊 Quantitative confidence and stability metrics
+
+                **Note:** Performance metrics are calculated for the
+                currently uploaded image pair and should be interpreted
+                as experimental results for that evaluation.
+                """
+            )
+
+        except Exception as error:
+
+            st.error(
+                f"Pipeline Error: {error}"
             )
 
 else:
 
     st.info(
-        "👆 Upload both a reference image and a source "
-        "image to start LunarAlign-AI Pro."
+        "👆 Upload both a reference and source lunar image "
+        "to start the SIH26166 correspondence pipeline."
     )
